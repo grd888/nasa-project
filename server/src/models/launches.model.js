@@ -1,9 +1,7 @@
 const launchesDB = require('./launches.mongo.js');
 const planets = require('./planets.mongo.js');
 
-const launches = new Map();
-
-let latestFlightNumber = 100;
+const DEFAULT_FLIGHT_NUMBER = 100;
 
 const launch = {
   flightNumber: 100,
@@ -18,9 +16,20 @@ const launch = {
 
 saveLaunch(launch);
 
-function existsLaunchWithId(launchId) {
-  return launches.has(launchId);
+async function existsLaunchWithId(launchId) {
+  return await launchesDB.findOne({ flightNumber: launchId });
 }
+
+async function getLatestFlightNumber() {
+  const latestLaunch = await launchesDB
+    .findOne({}, { _id: 0 })
+    .sort('-flightNumber');
+  if (!latestLaunch) {
+    return DEFAULT_FLIGHT_NUMBER;
+  }
+  return latestLaunch.flightNumber;
+}
+
 async function getAllLaunches() {
   return await launchesDB.find({}, { _id: 0, __v: 0 });
 }
@@ -30,7 +39,7 @@ async function saveLaunch(launch) {
   if (!planet) {
     throw new Error('No matching planet found');
   }
-  await launchesDB.updateOne(
+  await launchesDB.findOneAndUpdate(
     {
       flightNumber: launch.flightNumber,
     },
@@ -41,29 +50,31 @@ async function saveLaunch(launch) {
   );
 }
 
-function addNewLaunch(launch) {
-  latestFlightNumber += 1;
-  launches.set(
-    latestFlightNumber,
-    Object.assign(launch, {
-      success: true,
-      upcoming: true,
-      customers: ['Zero To Mastery', 'NASA'],
-      flightNumber: latestFlightNumber,
-    })
-  );
+async function scheduleNewLaunch(launch) {
+  const newFlightNumber = (await getLatestFlightNumber()) + 1;
+  const newLaunch = Object.assign(launch, {
+    success: true,
+    upcoming: true,
+    customers: ['Zero To Mastery', 'NASA'],
+    flightNumber: newFlightNumber,
+  });
+
+  await saveLaunch(newLaunch);
 }
 
-function abortLaunchById(launchId) {
-  const aborted = launches.get(launchId);
-  aborted.success = false;
-  aborted.upcoming = false;
-  return aborted;
+async function abortLaunchById(launchId) {
+  const aborted = await launchesDB.updateOne({
+    flightNumber: launchId
+  }, {
+    upcoming: false,
+    success: false
+  });
+  return aborted.modifiedCount === 1;
 }
 
 module.exports = {
   getAllLaunches,
-  addNewLaunch,
+  scheduleNewLaunch,
   existsLaunchWithId,
   abortLaunchById,
 };
